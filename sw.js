@@ -1,8 +1,8 @@
-// Bump CACHE version whenever you change app files, to force an update.
-const CACHE = 'plus50-v1';
+// Network-first for the app shell (HTML) => koda se posodablja samodejno ob vsakem odprtju,
+// dokler je na voljo internet. Ikone in ostalo se strežejo iz predpomnilnika (cache-first).
+// sw.js verzije ni treba ročno bumpati za spremembe index.html.
+const STATIC = 'plus50-static-v1';
 const ASSETS = [
-  './',
-  './index.html',
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',
@@ -11,36 +11,48 @@ const ASSETS = [
   './icon-180.png'
 ];
 
-self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}).then(() => self.skipWaiting())
-  );
+self.addEventListener('install', function (e) {
+  e.waitUntil(caches.open(STATIC).then(function (c) { return c.addAll(ASSETS); }).catch(function(){}));
+  // NE klicemo skipWaiting tukaj: nova verzija caka, dokler uporabnik ne tapne "Osvezi".
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+self.addEventListener('activate', function (e) {
+  e.waitUntil(self.clients.claim());
 });
 
-self.addEventListener('fetch', e => {
-  const req = e.request;
+self.addEventListener('message', function (e) {
+  if (e.data === 'skipWaiting') self.skipWaiting();
+});
+
+self.addEventListener('fetch', function (e) {
+  var req = e.request;
   if (req.method !== 'GET') return;
-  e.respondWith(
-    caches.match(req).then(hit => {
-      if (hit) return hit;
-      return fetch(req).then(res => {
-        // cache same-origin successful responses for next time
-        try {
-          const url = new URL(req.url);
-          if (url.origin === location.origin && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then(c => c.put(req, copy));
-          }
-        } catch (_) {}
+  var url = new URL(req.url);
+  var isHTML = req.mode === 'navigate' || req.destination === 'document'
+            || url.pathname.endsWith('.html') || url.pathname.endsWith('/');
+
+  if (isHTML) {
+    // network-first: vedno poskusi sveze, ob offline padi na predpomnjeno
+    e.respondWith(
+      fetch(req).then(function (res) {
+        var copy = res.clone();
+        caches.open(STATIC).then(function (c) { c.put('./index.html', copy); });
         return res;
-      }).catch(() => caches.match('./index.html'));
+      }).catch(function () { return caches.match('./index.html'); })
+    );
+    return;
+  }
+
+  // staticne datoteke: cache-first
+  e.respondWith(
+    caches.match(req).then(function (hit) {
+      return hit || fetch(req).then(function (res) {
+        if (url.origin === location.origin && res.ok) {
+          var copy = res.clone();
+          caches.open(STATIC).then(function (c) { c.put(req, copy); });
+        }
+        return res;
+      }).catch(function () { return hit; });
     })
   );
 });

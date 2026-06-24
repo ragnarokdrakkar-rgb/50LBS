@@ -285,6 +285,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="toast" id="updBar" style="border-color:var(--accent);cursor:pointer">Nova različica je na voljo — tapni za osvežitev</div>
 
 <!-- lift add/edit modal -->
 <div class="modal" id="modal">
@@ -751,7 +752,17 @@ if(isIOS && !isStandalone && localStorage.getItem('plus50_install_hide')!=='1'){
 // ===== boot =====
 load(); renderAll();
 document.getElementById('calcBar').placeholder=state.unit==='kg'?'20':'45';
-if('serviceWorker' in navigator && location.protocol.startsWith('http')){ window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{})); }
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  var _refreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',function(){ if(_refreshing)return; _refreshing=true; location.reload(); });
+  function showUpdate(worker){ var b=document.getElementById('updBar'); b.className='toast show'; b.onclick=function(){ b.className='toast'; if(worker) worker.postMessage('skipWaiting'); }; }
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('sw.js').then(function(reg){
+      if(reg.waiting && navigator.serviceWorker.controller) showUpdate(reg.waiting);
+      reg.addEventListener('updatefound',function(){ var nw=reg.installing; if(!nw)return; nw.addEventListener('statechange',function(){ if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdate(nw); }); });
+    }).catch(function(){});
+  });
+}
 </script>
 </body>
 </html>
