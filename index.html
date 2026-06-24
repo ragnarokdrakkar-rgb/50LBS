@@ -85,6 +85,7 @@
   .chev{color:var(--faint);font-size:11px;transition:transform .2s;display:inline-block}
   .wk.collapsed .chev{transform:rotate(-90deg)}
   .wk.collapsed .sets,.wk.collapsed .testbox{display:none}
+  .wklock{background:transparent;border:0;color:var(--test);font-size:15px;cursor:pointer;padding:6px 2px}
   .lockbtn{background:var(--raised);border:1px solid var(--line);color:var(--muted);width:40px;height:40px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-size:16px}
   .lockbtn.locked{color:var(--test);border-color:var(--test)}
   .maxinput input:read-only{opacity:.65}
@@ -501,7 +502,14 @@ function renderList(){
     h.onclick=(e)=>{ if(e.target.closest('.check')) return; card.classList.toggle('collapsed'); };
     const chk=document.createElement('div'); chk.className='check'+(arr[i]?' on':'');
     chk.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="#06121f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    chk.onclick=(e)=>{ e.stopPropagation(); toggleDone(L,arr,i); };
+    if(arr[i]){
+      const unlock=(e)=>{ e.stopPropagation(); if(confirm('Odklenem in odkljukam Trening '+(i+1)+'?')) toggleDone(L,arr,i); };
+      const lk=document.createElement('button'); lk.className='wklock'; lk.textContent='🔒'; lk.title='Zaklenjeno — tapni za odklep';
+      lk.onclick=unlock; chk.onclick=unlock;
+      h.appendChild(lk);
+    }else{
+      chk.onclick=(e)=>{ e.stopPropagation(); toggleDone(L,arr,i); };
+    }
     h.appendChild(chk); card.appendChild(h);
     const sets=document.createElement('div'); sets.className='sets';
     w.s.forEach((set,j)=>{
