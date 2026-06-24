@@ -28,6 +28,10 @@
   .brand h1 b{color:var(--accent)}
   .brand span{color:var(--muted);font-size:12px;font-weight:500}
   .sub{color:var(--faint);font-size:11.5px;margin-top:4px}
+  .install{display:none;align-items:center;gap:10px;margin:12px 18px 0;background:rgba(74,158,255,.12);border:1px solid rgba(74,158,255,.35);border-radius:12px;padding:11px 13px}
+  .install span{flex:1;font-size:12.5px;color:var(--txt);line-height:1.4}
+  .install .ib{background:var(--accent);border:0;color:#06121f;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer;font-family:inherit;font-size:12.5px;white-space:nowrap}
+  .install .ix{background:transparent;border:0;color:var(--faint);font-size:16px;cursor:pointer;padding:2px 4px}
   .lifts{display:flex;gap:8px;overflow-x:auto;padding:14px 18px 6px;scrollbar-width:none}
   .lifts::-webkit-scrollbar{display:none}
   .pill{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--muted);padding:9px 15px;border-radius:999px;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s;display:flex;align-items:center;gap:7px}
@@ -77,6 +81,17 @@
   .wk-n{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:21px;letter-spacing:.4px;text-transform:uppercase}
   .now-tag{font-size:10px;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:2px 7px;letter-spacing:1px}
   .wk-h .sp{flex:1}
+  .wk-h{cursor:pointer}
+  .chev{color:var(--faint);font-size:11px;transition:transform .2s;display:inline-block}
+  .wk.collapsed .chev{transform:rotate(-90deg)}
+  .wk.collapsed .sets,.wk.collapsed .testbox{display:none}
+  .lockbtn{background:var(--raised);border:1px solid var(--line);color:var(--muted);width:40px;height:40px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-size:16px}
+  .lockbtn.locked{color:var(--test);border-color:var(--test)}
+  .maxinput input:read-only{opacity:.65}
+  .statg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .stat .sv{font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px}
+  .stat .sl{font-size:11px;color:var(--muted);margin-top:2px}
   .check{width:30px;height:30px;border-radius:9px;border:1.5px solid var(--line);background:var(--raised);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s}
   .check.on{background:var(--ok);border-color:var(--ok)}
   .check svg{opacity:0;transition:.15s}
@@ -194,6 +209,12 @@
     <div class="sub">Vnesi max za vsako vajo. Teže se preračunajo po izbranem programu.</div>
   </header>
 
+  <div class="install" id="installBar">
+    <span id="installText">Namesti kot aplikacijo na napravo</span>
+    <button class="ib" id="installBtn">Namesti</button>
+    <button class="ix" id="installX">✕</button>
+  </div>
+
   <div class="lifts" id="lifts"></div>
 
   <div class="panel">
@@ -207,6 +228,7 @@
       <label>Tvoj max · 1RM</label>
       <div class="maxinput"><input id="maxInput" type="number" inputmode="decimal" step="0.5" min="0"><span class="u" id="maxUnit">kg</span></div>
       <div class="unit-toggle"><button id="ukg" class="on">kg</button><button id="ulb">lb</button></div>
+      <button class="lockbtn" id="lockBtn" title="Zakleni / odkleni težo">🔓</button>
     </div>
     <div class="prow2">
       <label>Program</label>
@@ -341,7 +363,7 @@ const SEED=[
 ];
 function DEFAULT(){
   const lifts={},order=[];
-  SEED.forEach(s=>{ lifts[s.id]={name:s.name,max:s.max,custom:false,program:'plus50',progress:{},history:[]}; order.push(s.id); });
+  SEED.forEach(s=>{ lifts[s.id]={name:s.name,max:s.max,custom:false,program:'plus50',progress:{},history:[],locked:false,stats:{total:0,cycles:0,best:s.max,last:null}}; order.push(s.id); });
   return {unit:'kg',active:'bench',order,lifts,programs:seedPrograms()};
 }
 let state=DEFAULT();
@@ -374,7 +396,10 @@ function applyLoaded(p){
     const progress={};
     if(L.progress&&typeof L.progress==='object') Object.entries(L.progress).forEach(([k,v])=>{ if(Array.isArray(v)) progress[k]=v.map(Boolean); });
     const history=Array.isArray(L.history)?L.history.filter(h=>h&&isFinite(h.t)&&isFinite(h.max)).map(h=>({t:+h.t,max:+h.max,note:String(h.note||'')})):[];
-    ns.lifts[id]={name:String(L.name||'Vaja'),max:(typeof L.max==='number'&&isFinite(L.max))?L.max:100,custom:!!L.custom,program:prog,progress,history};
+    const mx=(typeof L.max==='number'&&isFinite(L.max))?L.max:100;
+    const st=(L.stats&&typeof L.stats==='object')?L.stats:{};
+    ns.lifts[id]={name:String(L.name||'Vaja'),max:mx,custom:!!L.custom,program:prog,progress,history,locked:!!L.locked,
+      stats:{total:Math.max(0,parseInt(st.total)||0),cycles:Math.max(0,parseInt(st.cycles)||0),best:(parseFloat(st.best)||0)||mx,last:st.last?+st.last:null}};
     ns.order.push(id);
   });
   if(!ns.order.length){ state=DEFAULT(); return; }
@@ -415,6 +440,21 @@ function progArr(L){
   L.progress[pid]=a; return a;
 }
 const dmy=t=>{ const d=new Date(t); return d.getDate()+'.'+(d.getMonth()+1)+'.'; };
+function updateBest(L){ if(L.max>(L.stats.best||0)) L.stats.best=L.max; }
+function toggleDone(L,arr,i){
+  const prevAll = arr.length>0 && arr.every(Boolean);
+  const was = arr[i];
+  arr[i] = !was;
+  if(!was && arr[i]){            // newly completed
+    L.stats.total++; L.stats.last=Date.now();
+    if(!L.locked) L.locked=true; // start of cycle -> lock weight
+    if(arr.every(Boolean)) L.stats.cycles++;
+  } else if(was && !arr[i]){     // un-completed
+    L.stats.total=Math.max(0,L.stats.total-1);
+    if(prevAll) L.stats.cycles=Math.max(0,L.stats.cycles-1);
+  }
+  save(); renderLifts(); renderPanel(); renderList();
+}
 
 // ===== render =====
 function renderLifts(){
@@ -433,7 +473,8 @@ function renderLifts(){
 function renderPanel(){
   const L=al();
   document.getElementById('liftName').textContent=L.name;
-  document.getElementById('maxInput').value=L.max;
+  const mi=document.getElementById('maxInput'); mi.value=L.max; mi.readOnly=!!L.locked;
+  const lb=document.getElementById('lockBtn'); lb.textContent=L.locked?'🔒':'🔓'; lb.classList.toggle('locked',!!L.locked); lb.title=L.locked?'Teža zaklenjena (tapni za odklep)':'Teža odklenjena';
   document.getElementById('maxUnit').textContent=state.unit;
   document.getElementById('ukg').classList.toggle('on',state.unit==='kg');
   document.getElementById('ulb').classList.toggle('on',state.unit==='lb');
@@ -453,12 +494,13 @@ function renderList(){
   const isP50=L.program==='plus50';
   W.forEach((w,i)=>{
     const card=document.createElement('div');
-    card.className='wk'+(i===now?' now':'')+(arr[i]?' complete':'');
+    card.className='wk'+(i===now?' now':'')+(arr[i]?' complete collapsed':'');
     const h=document.createElement('div'); h.className='wk-h';
-    let head='<div class="wk-n">Trening '+(i+1)+'</div>'; if(i===now) head+='<span class="now-tag">ZDAJ</span>'; head+='<div class="sp"></div>'; h.innerHTML=head;
+    let head='<span class="chev">▾</span><div class="wk-n">Trening '+(i+1)+'</div>'; if(i===now) head+='<span class="now-tag">ZDAJ</span>'; head+='<div class="sp"></div>'; h.innerHTML=head;
+    h.onclick=(e)=>{ if(e.target.closest('.check')) return; card.classList.toggle('collapsed'); };
     const chk=document.createElement('div'); chk.className='check'+(arr[i]?' on':'');
     chk.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12.5l4.5 4.5L19 7" stroke="#06121f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    chk.onclick=()=>{ arr[i]=!arr[i]; save(); renderLifts(); renderPanel(); renderList(); };
+    chk.onclick=(e)=>{ e.stopPropagation(); toggleDone(L,arr,i); };
     h.appendChild(chk); card.appendChild(h);
     const sets=document.createElement('div'); sets.className='sets';
     w.s.forEach((set,j)=>{
@@ -473,7 +515,11 @@ function renderList(){
       tb.innerHTML='<div class="q">Rezultat Test seta?</div>';
       const r=document.createElement('div'); r.className='testbtns';
       const flash=document.createElement('div'); flash.className='flash';
-      const apply=(delta,note)=>{ if(delta!==0){ L.max=Math.max(0,Math.round((L.max+delta*step())*10)/10);} L.history.push({t:Date.now(),max:L.max,note}); save(); renderPanel(); renderList(); };
+      const apply=(delta,note)=>{
+        if(delta!==0 && L.locked){ toast('Teža je zaklenjena — odkleni (🔓) za spremembo.'); L.history.push({t:Date.now(),max:L.max,note:note+' · zaklenjeno'}); save(); return; }
+        if(delta!==0){ L.max=Math.max(0,Math.round((L.max+delta*step())*10)/10); updateBest(L); }
+        L.history.push({t:Date.now(),max:L.max,note}); save(); renderPanel(); renderList();
+      };
       const mk=(lab,sub,delta,note,cls)=>{ const b=document.createElement('button'); if(cls)b.className=cls; b.innerHTML=lab+'<small>'+sub+'</small>'; b.onclick=()=>apply(delta,note); return b; };
       if(isP50){
         r.appendChild(mk('1 rep','−'+fmt(step())+' '+state.unit,-1,'1 rep → −'+fmt(step()),'dn'));
@@ -509,7 +555,7 @@ function saveModal(){
   const name=document.getElementById('mName').value.trim()||'Vaja';
   let max=parseFloat(document.getElementById('mMax').value); if(isNaN(max)||max<0)max=0;
   if(editingId){ state.lifts[editingId].name=name; state.lifts[editingId].max=max; }
-  else{ const id='c'+Date.now().toString(36); state.lifts[id]={name,max,custom:true,program:'plus50',progress:{},history:[]}; state.order.push(id); state.active=id; }
+  else{ const id='c'+Date.now().toString(36); state.lifts[id]={name,max,custom:true,program:'plus50',progress:{},history:[],locked:false,stats:{total:0,cycles:0,best:max,last:null}}; state.order.push(id); state.active=id; }
   save(); closeModal(); renderAll();
 }
 function deleteLift(){
@@ -616,6 +662,16 @@ function openHistory(){ renderHistory(); document.getElementById('history').clas
 function renderHistory(){
   const L=al(); document.getElementById('histTitle').textContent='Zgodovina · '+L.name;
   const body=document.getElementById('hBody'); body.innerHTML='';
+  const s=L.stats, last=s.last?new Date(s.last).toLocaleDateString('sl-SI'):'—';
+  const grid=document.createElement('div'); grid.className='statg';
+  const cell=(v,l)=>'<div class="stat"><div class="sv">'+v+'</div><div class="sl">'+l+'</div></div>';
+  grid.innerHTML=cell(fmt(L.max)+' '+state.unit,'Trenutni max')
+    +cell(fmt(s.best||L.max)+' '+state.unit,'Najboljši (PR)')
+    +cell(s.total,'Opravljenih treningov')
+    +cell(s.cycles,'Zaključenih ciklov')
+    +cell(last,'Zadnji trening')
+    +cell((L.locked?'🔒 zaklenjen':'🔓 odklenjen'),'Status teže');
+  body.appendChild(grid);
   const cw=document.createElement('div'); cw.className='chartwrap';
   cw.innerHTML='<h4>Max skozi čas</h4>'+buildChart(L.history.map(h=>({t:h.t,max:h.max})));
   body.appendChild(cw);
@@ -650,11 +706,12 @@ function calcPlates(){
 }
 
 // ===== events =====
-document.getElementById('maxInput').addEventListener('input',e=>{ const v=parseFloat(e.target.value); al().max=isNaN(v)?0:v; save(); renderList(); });
-function setUnit(u){ if(state.unit===u)return; const f=u==='lb'?2.20462:1/2.20462,s=u==='kg'?2.5:5; Object.values(state.lifts).forEach(l=>{ l.max=Math.round((l.max*f)/s)*s; l.history.forEach(h=>{h.max=Math.round((h.max*f)/s)*s;}); }); state.unit=u; save(); renderAll(); calcPlates(); }
+document.getElementById('maxInput').addEventListener('input',e=>{ const v=parseFloat(e.target.value); const L=al(); L.max=isNaN(v)?0:v; updateBest(L); save(); renderList(); });
+function setUnit(u){ if(state.unit===u)return; const f=u==='lb'?2.20462:1/2.20462,s=u==='kg'?2.5:5; Object.values(state.lifts).forEach(l=>{ l.max=Math.round((l.max*f)/s)*s; l.stats.best=Math.round(((l.stats.best||0)*f)/s)*s; l.history.forEach(h=>{h.max=Math.round((h.max*f)/s)*s;}); }); state.unit=u; save(); renderAll(); calcPlates(); }
 document.getElementById('ukg').onclick=()=>setUnit('kg');
 document.getElementById('ulb').onclick=()=>setUnit('lb');
-document.getElementById('resetBtn').onclick=()=>{ const L=al(); if(confirm('Ponastavim napredek tega programa za "'+L.name+'"?')){ L.progress[L.program]=Array(ap().workouts.length).fill(false); save(); renderAll(); } };
+document.getElementById('resetBtn').onclick=()=>{ const L=al(); if(confirm('Začnem nov cikel? Napredek tega programa se ponastavi, max ostane in se odklene.')){ L.progress[L.program]=Array(ap().workouts.length).fill(false); L.locked=false; save(); renderAll(); } };
+document.getElementById('lockBtn').onclick=()=>{ const L=al(); if(L.locked){ if(confirm('Odklenem težo? Spreminjanje med ciklom ni priporočljivo.')) L.locked=false; } else { L.locked=true; } save(); renderPanel(); };
 document.getElementById('editLift').onclick=()=>openModal(state.active);
 document.getElementById('mCancel').onclick=closeModal;
 document.getElementById('mSave').onclick=saveModal;
@@ -672,6 +729,24 @@ document.getElementById('importBtn').onclick=()=>document.getElementById('import
 document.getElementById('importFile').addEventListener('change',e=>{ if(e.target.files[0]) importJSON(e.target.files[0]); e.target.value=''; });
 document.getElementById('calcTarget').addEventListener('input',calcPlates);
 document.getElementById('calcBar').addEventListener('input',calcPlates);
+
+// ===== install (PWA) =====
+let deferredPrompt=null;
+const installBar=document.getElementById('installBar');
+const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredPrompt=e;
+  if(localStorage.getItem('plus50_install_hide')!=='1'){ document.getElementById('installText').textContent='Namesti kot aplikacijo na napravo'; document.getElementById('installBtn').style.display='block'; installBar.style.display='flex'; }
+});
+document.getElementById('installBtn').onclick=async()=>{ if(!deferredPrompt) return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; installBar.style.display='none'; };
+document.getElementById('installX').onclick=()=>{ installBar.style.display='none'; try{ localStorage.setItem('plus50_install_hide','1'); }catch(e){} };
+window.addEventListener('appinstalled',()=>{ installBar.style.display='none'; toast('Aplikacija nameščena.'); });
+// iOS Safari has no install prompt -> show manual hint
+if(isIOS && !isStandalone && localStorage.getItem('plus50_install_hide')!=='1'){
+  document.getElementById('installText').innerHTML='Namesti: tapni <b>Deli</b> ⬆️ → <b>Dodaj na začetni zaslon</b>.';
+  document.getElementById('installBtn').style.display='none';
+  installBar.style.display='flex';
+}
 
 // ===== boot =====
 load(); renderAll();
