@@ -119,6 +119,11 @@
   .testbtns button.dn{border-color:var(--neg)} .testbtns button.up{border-color:var(--ok)}
   .flash{font-size:11.5px;color:var(--ok);margin-top:9px;font-weight:600;display:none}
   .flash.show{display:block}
+  .testdone{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+  .testdone b{font-family:'Barlow Condensed',sans-serif;font-size:19px;color:var(--test)}
+  .testdone span{font-size:12px;color:var(--muted)}
+  .testundo{margin-top:10px;width:100%;background:var(--raised);border:1px solid var(--line);color:var(--muted);border-radius:9px;padding:9px;font-weight:600;cursor:pointer;font-family:inherit;font-size:12.5px}
+  .testundo:active{border-color:var(--neg);color:var(--neg)}
   .calc{margin:16px 18px 0;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
   .calc summary{padding:14px 16px;cursor:pointer;font-weight:600;font-size:14px;list-style:none;display:flex;align-items:center;gap:9px}
   .calc summary::-webkit-details-marker{display:none}
@@ -366,7 +371,7 @@ const SEED=[
 ];
 function DEFAULT(){
   const lifts={},order=[];
-  SEED.forEach(s=>{ lifts[s.id]={name:s.name,max:s.max,custom:false,program:'plus50',progress:{},doneDates:{},history:[],locked:false,stats:{total:0,cycles:0,best:s.max,last:null}}; order.push(s.id); });
+  SEED.forEach(s=>{ lifts[s.id]={name:s.name,max:s.max,custom:false,program:'plus50',progress:{},doneDates:{},testRes:{},history:[],locked:false,stats:{total:0,cycles:0,best:s.max,last:null}}; order.push(s.id); });
   return {unit:'kg',active:'bench',order,lifts,programs:seedPrograms()};
 }
 let state=DEFAULT();
@@ -400,10 +405,12 @@ function applyLoaded(p){
     if(L.progress&&typeof L.progress==='object') Object.entries(L.progress).forEach(([k,v])=>{ if(Array.isArray(v)) progress[k]=v.map(Boolean); });
     const doneDates={};
     if(L.doneDates&&typeof L.doneDates==='object') Object.entries(L.doneDates).forEach(([k,v])=>{ if(Array.isArray(v)) doneDates[k]=v.map(x=>(x==null?null:+x)); });
+    const testRes={};
+    if(L.testRes&&typeof L.testRes==='object') Object.entries(L.testRes).forEach(([k,v])=>{ if(Array.isArray(v)) testRes[k]=v.map(x=>(x&&typeof x==='object')?{d:parseInt(x.d)||0,t:+x.t||Date.now(),lab:String(x.lab||'')}:null); });
     const history=Array.isArray(L.history)?L.history.filter(h=>h&&isFinite(h.t)&&isFinite(h.max)).map(h=>({t:+h.t,max:+h.max,note:String(h.note||'')})):[];
     const mx=(typeof L.max==='number'&&isFinite(L.max))?L.max:100;
     const st=(L.stats&&typeof L.stats==='object')?L.stats:{};
-    ns.lifts[id]={name:String(L.name||'Vaja'),max:mx,custom:!!L.custom,program:prog,progress,doneDates,history,locked:!!L.locked,
+    ns.lifts[id]={name:String(L.name||'Vaja'),max:mx,custom:!!L.custom,program:prog,progress,doneDates,testRes,history,locked:!!L.locked,
       stats:{total:Math.max(0,parseInt(st.total)||0),cycles:Math.max(0,parseInt(st.cycles)||0),best:(parseFloat(st.best)||0)||mx,last:st.last?+st.last:null}};
     ns.order.push(id);
   });
@@ -451,6 +458,14 @@ function dateArr(L){
   if(a.length<wc) a=a.concat(Array(wc-a.length).fill(null));
   if(a.length>wc) a=a.slice(0,wc);
   L.doneDates[pid]=a; return a;
+}
+function testArr(L){
+  const pid=L.program, wc=state.programs[pid].workouts.length;
+  if(!L.testRes) L.testRes={};
+  let a=L.testRes[pid]; if(!Array.isArray(a)) a=[];
+  if(a.length<wc) a=a.concat(Array(wc-a.length).fill(null));
+  if(a.length>wc) a=a.slice(0,wc);
+  L.testRes[pid]=a; return a;
 }
 const dmy=t=>{ const d=new Date(t); return d.getDate()+'.'+(d.getMonth()+1)+'.'; };
 function updateBest(L){ if(L.max>(L.stats.best||0)) L.stats.best=L.max; }
@@ -505,7 +520,7 @@ function renderPanel(){
     : 'Pri Test/AMRAP setu poženeš čim več ponovitev, nato po občutku popraviš max (gumbi −/+ '+fmt(step())+' '+state.unit+').';
 }
 function renderList(){
-  const L=al(), W=ap().workouts, arr=progArr(L), dates=dateArr(L), now=arr.findIndex(x=>!x), list=document.getElementById('list'); list.innerHTML='';
+  const L=al(), W=ap().workouts, arr=progArr(L), dates=dateArr(L), tests=testArr(L), now=arr.findIndex(x=>!x), list=document.getElementById('list'); list.innerHTML='';
   const isP50=L.program==='plus50';
   W.forEach((w,i)=>{
     const card=document.createElement('div');
@@ -537,25 +552,45 @@ function renderList(){
     card.appendChild(sets);
     if(w.s.some(s=>s[2]==='t')){
       const tb=document.createElement('div'); tb.className='testbox';
-      tb.innerHTML='<div class="q">Rezultat Test seta?</div>';
-      const r=document.createElement('div'); r.className='testbtns';
-      const flash=document.createElement('div'); flash.className='flash';
-      const apply=(delta,note)=>{
-        if(delta!==0 && L.locked){ toast('Teža je zaklenjena — odkleni (🔓) za spremembo.'); L.history.push({t:Date.now(),max:L.max,note:note+' · zaklenjeno'}); save(); return; }
-        if(delta!==0){ L.max=Math.max(0,Math.round((L.max+delta*step())*10)/10); updateBest(L); }
-        L.history.push({t:Date.now(),max:L.max,note}); save(); renderPanel(); renderList();
-      };
-      const mk=(lab,sub,delta,note,cls)=>{ const b=document.createElement('button'); if(cls)b.className=cls; b.innerHTML=lab+'<small>'+sub+'</small>'; b.onclick=()=>apply(delta,note); return b; };
-      if(isP50){
-        r.appendChild(mk('1 rep','−'+fmt(step())+' '+state.unit,-1,'1 rep → −'+fmt(step()),'dn'));
-        r.appendChild(mk('2–4','ostane',0,'2–4 → enako'));
-        r.appendChild(mk('5+','+'+fmt(step())+' '+state.unit,1,'5+ → +'+fmt(step()),'up'));
+      const rec = tests[i];
+      if(rec){
+        // already recorded -> show result, allow redo
+        tb.innerHTML='<div class="q">Test zabeležen</div>';
+        const done=document.createElement('div'); done.className='testdone';
+        const sign = rec.d>0?'+':(rec.d<0?'−':'±');
+        done.innerHTML='<b>'+rec.lab+'</b><span>'+sign+(rec.d?fmt(step()):'0')+' '+state.unit+' · '+new Date(rec.t).toLocaleDateString('sl-SI')+'</span>';
+        const undo=document.createElement('button'); undo.className='testundo'; undo.textContent='Ponovi vnos';
+        undo.onclick=()=>{
+          if(!confirm('Prekličem zabeležen rezultat? Teža se vrne za '+(rec.d?fmt(step())+' '+state.unit:'0')+'.')) return;
+          if(rec.d!==0){ L.max=Math.max(0,Math.round((L.max-rec.d*step())*10)/10); }
+          tests[i]=null; save(); renderPanel(); renderList();
+        };
+        tb.appendChild(done); tb.appendChild(undo);
       }else{
-        r.appendChild(mk('Slabše','−'+fmt(step())+' '+state.unit,-1,'−'+fmt(step()),'dn'));
-        r.appendChild(mk('Enako','ostane',0,'enako'));
-        r.appendChild(mk('Bolje','+'+fmt(step())+' '+state.unit,1,'+'+fmt(step()),'up'));
+        tb.innerHTML='<div class="q">Rezultat Test seta?'+(L.locked?' <span style="color:var(--muted)">(teža zaklenjena)</span>':'')+'</div>';
+        const r=document.createElement('div'); r.className='testbtns';
+        const apply=(delta,lab,note)=>{
+          if(delta!==0 && L.locked){
+            if(!confirm('Teža je zaklenjena.\n\nDovolim prepis in spremenim max za '+(delta>0?'+':'−')+fmt(step())+' '+state.unit+'?')) return;
+          }
+          if(delta!==0){ L.max=Math.max(0,Math.round((L.max+delta*step())*10)/10); updateBest(L); }
+          tests[i]={d:delta,t:Date.now(),lab:lab};
+          L.history.push({t:Date.now(),max:L.max,note:note});
+          save(); renderPanel(); renderList();
+        };
+        const mk=(lab,sub,delta,note,cls)=>{ const b=document.createElement('button'); if(cls)b.className=cls; b.innerHTML=lab+'<small>'+sub+'</small>'; b.onclick=()=>apply(delta,lab,note); return b; };
+        if(isP50){
+          r.appendChild(mk('1 rep','−'+fmt(step())+' '+state.unit,-1,'1 rep → −'+fmt(step()),'dn'));
+          r.appendChild(mk('2–4','ostane',0,'2–4 → enako'));
+          r.appendChild(mk('5+','+'+fmt(step())+' '+state.unit,1,'5+ → +'+fmt(step()),'up'));
+        }else{
+          r.appendChild(mk('Slabše','−'+fmt(step())+' '+state.unit,-1,'−'+fmt(step()),'dn'));
+          r.appendChild(mk('Enako','ostane',0,'enako'));
+          r.appendChild(mk('Bolje','+'+fmt(step())+' '+state.unit,1,'+'+fmt(step()),'up'));
+        }
+        tb.appendChild(r);
       }
-      tb.appendChild(r); tb.appendChild(flash); card.appendChild(tb);
+      card.appendChild(tb);
     }
     list.appendChild(card);
   });
@@ -580,7 +615,7 @@ function saveModal(){
   const name=document.getElementById('mName').value.trim()||'Vaja';
   let max=parseFloat(document.getElementById('mMax').value); if(isNaN(max)||max<0)max=0;
   if(editingId){ state.lifts[editingId].name=name; state.lifts[editingId].max=max; }
-  else{ const id='c'+Date.now().toString(36); state.lifts[id]={name,max,custom:true,program:'plus50',progress:{},doneDates:{},history:[],locked:false,stats:{total:0,cycles:0,best:max,last:null}}; state.order.push(id); state.active=id; }
+  else{ const id='c'+Date.now().toString(36); state.lifts[id]={name,max,custom:true,program:'plus50',progress:{},doneDates:{},testRes:{},history:[],locked:false,stats:{total:0,cycles:0,best:max,last:null}}; state.order.push(id); state.active=id; }
   save(); closeModal(); renderAll();
 }
 function deleteLift(){
@@ -735,7 +770,7 @@ document.getElementById('maxInput').addEventListener('input',e=>{ const v=parseF
 function setUnit(u){ if(state.unit===u)return; const f=u==='lb'?2.20462:1/2.20462,s=u==='kg'?2.5:5; Object.values(state.lifts).forEach(l=>{ l.max=Math.round((l.max*f)/s)*s; l.stats.best=Math.round(((l.stats.best||0)*f)/s)*s; l.history.forEach(h=>{h.max=Math.round((h.max*f)/s)*s;}); }); state.unit=u; save(); renderAll(); calcPlates(); }
 document.getElementById('ukg').onclick=()=>setUnit('kg');
 document.getElementById('ulb').onclick=()=>setUnit('lb');
-document.getElementById('resetBtn').onclick=()=>{ const L=al(); if(confirm('Začnem nov cikel? Napredek tega programa se ponastavi, max ostane in se odklene.')){ L.progress[L.program]=Array(ap().workouts.length).fill(false); L.doneDates[L.program]=Array(ap().workouts.length).fill(null); L.locked=false; save(); renderAll(); } };
+document.getElementById('resetBtn').onclick=()=>{ const L=al(); if(confirm('Začnem nov cikel? Napredek tega programa se ponastavi, max ostane in se odklene.')){ const n=ap().workouts.length; L.progress[L.program]=Array(n).fill(false); L.doneDates[L.program]=Array(n).fill(null); L.testRes[L.program]=Array(n).fill(null); L.locked=false; save(); renderAll(); } };
 document.getElementById('lockBtn').onclick=()=>{ const L=al(); if(L.locked){ if(confirm('Odklenem težo? Spreminjanje med ciklom ni priporočljivo.')) L.locked=false; } else { L.locked=true; } save(); renderPanel(); };
 document.getElementById('editLift').onclick=()=>openModal(state.active);
 document.getElementById('mCancel').onclick=closeModal;
