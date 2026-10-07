@@ -3,14 +3,29 @@
 Sledilnik za **+50lbs** program moči — več vaj v eni aplikaciji (bench, incline, squat, deadlift, military press + poljubne lastne vaje). Deluje kot spletna PWA: namestljiva na telefon, dela offline, podatki se shranijo lokalno na napravi.
 
 ## Funkcije
-- Vseh 14 treningov programa, preračunanih po tvojem 1RM za vsako vajo
-- Tipi setov: Normalno / Negativ / Test (do odpovedi)
-- Test set sam prilagodi max: 1 rep → −2,5 kg, 2–4 → ostane, 5+ → +2,5 kg
-- Dodajanje, preimenovanje, brisanje in premikanje vaj
-- kg / lb preklop
-- Kalkulator uteži (koliko plošč na vsako stran)
-- Backup: izvoz/uvoz JSON
-- Sledenje napredka (kljukice) na vajo
+Aplikacija ima 4 zavihke (spodnji meni):
+
+**Trening**
+- Izbira vaje zgoraj (krog ob imenu kaže napredek cikla)
+- Max (1RM) in program vaje na enem mestu – tapni za urejanje
+- Mreža vseh treningov cikla: zelena = opravljen, modra obroba = na vrsti; pikice označujejo Negativ/Test set
+- En trening naenkrat (puščici ‹ › ali tap na mrežo)
+- Tapni set, ko ga opraviš → kljukica + štoparica počitka
+- Pod vsako težo piše, katere plošče daš na **vsako stran** droga
+- Test set: rezultat vneseš kar pod setom (1 rep → −2,5 kg, 2–4 → ostane, 5+ → +2,5 kg), z možnostjo razveljavitve
+- **Zaključi trening** (z »Razveljavi«), na koncu cikla gumb **Nov cikel**
+
+**Napredek** – trenutni max, osebni rekord, treningi, graf maxa skozi čas in zgodovina vnosov
+
+**Kalkulator** – ciljna teža (ali hitro % od maxa), izbira droga, slika naloženega droga
+
+**Nastavitve** – kg/lb, vaje (dodaj, uredi, premikaj), programi (vgrajeni + lastni urejevalnik), izvoz/uvoz backupa, namestitev, pomoč
+
+Ostalo:
+- Vgrajeni programi: +50 lbs (14 treningov), 5×5 progresija, 5/3/1
+- Max se ob prvem opravljenem treningu cikla zaklene (Test seti ga še vedno prilagodijo)
+- Gumb »nazaj« na Androidu zapre odprto okno namesto aplikacije
+- Deluje brez povezave, podatki ostanejo na napravi
 
 ## Datoteke
 ```
@@ -37,11 +52,11 @@ icon-180.png            ikona za iOS (apple-touch-icon)
 - **iPhone (Safari):** odpri povezavo → Deli → *Dodaj na začetni zaslon*.
 
 ## Posodabljanje
-Service worker predpomni datoteke. Ko spremeniš katero koli datoteko, **povečaj številko različice** v `sw.js`:
+`index.html` se naloži sveže ob vsakem odprtju (network-first), zato ga ni treba posebej označevati. Ko spremeniš ikone, manifest ali `sw.js`, **povečaj številko različice** v `sw.js`:
 ```js
-const CACHE = 'plus50-v2';   // v1 -> v2
+const STATIC = 'plus50-static-v3';   // v2 -> v3
 ```
-Tako bodo uporabniki dobili novo različico ob naslednjem odprtju.
+Aplikacija nato pokaže »Nova različica je na voljo → Osveži«.
 
 ## Podatki / zasebnost
 Vse je shranjeno lokalno v brskalniku (`localStorage`), nič ne gre na strežnik. Za varnost ali prenos na drugo napravo uporabi **Izvozi backup** in **Uvozi backup**.
