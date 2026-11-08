@@ -1,0 +1,65 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Številka različice: na GitHubu jo poda workflow (številka zagona), lokalno je 1.
+def vCode = (project.findProperty('versionCode') ?: '1').toString().toInteger()
+// Ključ za podpis ni v repozitoriju: pot in geslo prideta iz okolja (na GitHubu iz secrets).
+def ksFile = System.getenv('KEYSTORE_FILE') ?: rootProject.file('plus50.keystore').path
+def ksPass = System.getenv('KEYSTORE_PASSWORD')
+
+android {
+    namespace 'com.ragnarok.plus50'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.ragnarok.plus50'
+        minSdk 24
+        // 34: brez prisilnega "edge-to-edge" iz Android 15, da vrstica stanja ne prekrije aplikacije
+        targetSdk 34
+        versionCode vCode
+        versionName "1.${vCode}"
+        buildConfigField 'String', 'UPDATE_REPO', '"ragnarokdrakkar-rgb/50LBS"'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(ksFile)
+            storePassword ksPass
+            keyAlias 'plus50'
+            keyPassword ksPass
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    buildFeatures { buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main { assets.srcDirs += ["$buildDir/web"] }
+    }
+}
+
+// Spletno aplikacijo iz korena repozitorija zapakira v APK (assets/www/).
+tasks.register('copyWeb', Copy) {
+    from(rootProject.file('..')) {
+        include 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-*.png'
+    }
+    into "$buildDir/web/www"
+}
+tasks.named('preBuild') { dependsOn 'copyWeb' }
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+    implementation 'androidx.core:core:1.13.1'
+}

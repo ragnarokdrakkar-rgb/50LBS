@@ -11,6 +11,7 @@ Aplikacija ima 4 zavihke (spodnji meni):
 - Mreža vseh treningov cikla: zelena = opravljen, modra obroba = na vrsti; pikice označujejo Negativ/Test set
 - En trening naenkrat (puščici ‹ › ali tap na mrežo)
 - Tapni set, ko ga opraviš → kljukica + štoparica počitka
+- **Ponovitve −/+** ob vsakem setu: vpišeš, koliko si dejansko naredil. Ob *Zaključi trening* aplikacija iz teže in ponovitev (Epley) oceni max: če kateri set ni uspel, se max **zniža** po najslabšem setu (vsaj za 2,5 kg), da so naslednji treningi izvedljivi s predpisanimi ponovitvami; če so vsi seti presegli plan, se zviša. Razveljaviš z »Razveljavi« ali »Označi kot neopravljeno«
 - Pod vsako težo piše, katere plošče daš na **vsako stran** droga
 - Test set: rezultat vneseš kar pod setom (1 rep → −2,5 kg, 2–4 → ostane, 5+ → +2,5 kg), z možnostjo razveljavitve
 - **Zaključi trening** (z »Razveljavi«), na koncu cikla gumb **Nov cikel**
@@ -19,7 +20,7 @@ Aplikacija ima 4 zavihke (spodnji meni):
 
 **Kalkulator** – ciljna teža (ali hitro % od maxa), izbira droga, slika naloženega droga
 
-**Nastavitve** – kg/lb, vaje (dodaj, uredi, premikaj), programi (vgrajeni + lastni urejevalnik), izvoz/uvoz backupa, namestitev, pomoč
+**Nastavitve** – kg/lb, vaje (dodaj, uredi, premikaj), programi (vgrajeni + lastni urejevalnik), izvoz/uvoz backupa, namestitev, Android aplikacija, pomoč
 
 Ostalo:
 - Vgrajeni programi: +50 lbs (14 treningov), 5×5 progresija, 5/3/1
@@ -30,6 +31,8 @@ Ostalo:
 ## Datoteke
 ```
 index.html              glavna aplikacija
+android/                Android aplikacija (WebView + posodobitve z GitHuba)
+.github/workflows/      samodejna gradnja APK-ja
 manifest.webmanifest    PWA manifest
 sw.js                   service worker (offline)
 icon.svg                ikona (vektorska)
@@ -38,6 +41,19 @@ icon-512.png            ikona PWA
 icon-512-maskable.png   ikona PWA (maskable)
 icon-180.png            ikona za iOS (apple-touch-icon)
 ```
+
+## Android aplikacija
+Mapa `android/` vsebuje majhno Android aplikacijo (Java, WebView), v katero je zapakiran `index.html`.
+
+- **Gradnja:** ob vsakem pushu na `main`, ki spremeni aplikacijo, GitHub Actions (`.github/workflows/android.yml`) zgradi APK in ga objavi kot izdajo `v<številka>` z datoteko `plus50.apk`. Ročno: *Actions → Android APK → Run workflow*.
+- **Prenos:** v spletni aplikaciji *Nastavitve → Android aplikacija → Prenesi Android aplikacijo* (povezava na najnovejši `plus50.apk`).
+- **Prenos podatkov:** v brskalniku na telefonu *Nastavitve → Prenesi podatke v Android aplikacijo* odpre aplikacijo in uvozi vse podatke (ob potrditvi). Druga možnost je *Izvozi backup* → *Uvozi backup*.
+- **Posodobitve:** aplikacija ob zagonu preveri najnovejšo izdajo na GitHubu in ponudi *Posodobi* (prenos + namestitev); ročno *Nastavitve → Preveri posodobitve*. Podatki ostanejo.
+- **Podpis (enkratna nastavitev):** podpisni ključ ni v repozitoriju. V *Settings → Secrets and variables → Actions* dodaj:
+  - `KEYSTORE_BASE64` – ključ (`plus50.keystore`) kodiran v base64,
+  - `KEYSTORE_PASSWORD` – geslo ključa (alias `plus50`).
+  Vse različice morajo biti podpisane z istim ključem, sicer se posodobitev ne namesti – ključ shrani tudi na varno.
+- Lokalna gradnja: `cd android && KEYSTORE_FILE=/pot/do/plus50.keystore KEYSTORE_PASSWORD=... ./gradlew assembleRelease` (potreben Android SDK).
 
 ## Objava na GitHub Pages
 1. Naredi nov repozitorij na GitHubu (npr. `plus50-trainer`).

@@ -143,6 +143,14 @@
   .w small{font:600 13px Inter,sans-serif;color:var(--muted);margin-left:2px}
   .x{color:var(--faint);font-size:16px;font-weight:500}
   .r{font:700 25px/1 var(--num)}
+  .r.dn{color:var(--neg)} .r.up{color:var(--ok)}
+  .r s{font:600 15px/1 var(--num);color:var(--faint);text-decoration:none;margin-left:2px}
+  .rs{display:inline-flex;align-items:center;gap:4px;align-self:center;margin-left:4px}
+  .rb{width:30px;height:30px;border-radius:9px;border:1px solid var(--line2);background:var(--s2);color:var(--txt);display:grid;place-items:center;cursor:pointer;padding:0}
+  .rb:active{background:var(--s3)}
+  .rb:disabled{opacity:.35}
+  .adjnote{display:flex;align-items:center;gap:8px;margin:0 0 12px;padding:10px 12px;border-radius:12px;font-size:13px;background:var(--s2);color:var(--muted)}
+  .adjnote b{color:var(--txt)}
   .pl{display:flex;align-items:center;gap:7px;margin-top:6px;font-size:12px;color:var(--muted);min-height:18px}
   .pl em{font-style:normal;color:var(--faint)}
   .pv{display:flex;align-items:center;gap:2px;height:18px;flex:0 0 auto}
@@ -238,6 +246,7 @@
   .group{overflow:hidden}
   .row{display:flex;align-items:center;gap:12px;padding:12px 14px;min-height:58px;width:100%}
   .row + .row{border-top:1px solid var(--line)}
+  a.row{color:inherit;text-decoration:none}
   button.row:active,.rmain:active{background:var(--s2)}
   .row > .i{color:var(--muted)}
   .rt{flex:1;min-width:0}
@@ -471,7 +480,7 @@ const SEED=[
   {id:'ohp',name:'Military press',max:60}
 ];
 function newLift(name,max,custom){
-  return {name,max,custom:!!custom,program:'plus50',progress:{},doneDates:{},testRes:{},setDone:{},history:[],locked:false,noPlates:false,stats:{total:0,cycles:0,best:max,last:null}};
+  return {name,max,custom:!!custom,program:'plus50',progress:{},doneDates:{},testRes:{},setDone:{},repsDone:{},repAdj:{},history:[],locked:false,noPlates:false,stats:{total:0,cycles:0,best:max,last:null}};
 }
 function DEFAULT(){
   const lifts={},order=[];
@@ -515,6 +524,8 @@ function applyLoaded(p){
       doneDates:mapArr(L.doneDates,x=>(x==null?null:+x)),
       testRes:mapArr(L.testRes,x=>(x&&typeof x==='object')?{d:parseInt(x.d)||0,t:+x.t||Date.now(),lab:String(x.lab||'')}:null),
       setDone:mapArr(L.setDone,r=>Array.isArray(r)?r.map(Boolean):[]),
+      repsDone:mapArr(L.repsDone,r=>Array.isArray(r)?r.map(x=>(x==null||!isFinite(x))?null:Math.max(0,parseInt(x)||0)):[]),
+      repAdj:mapArr(L.repAdj,x=>(x&&typeof x==='object'&&isFinite(x.from)&&isFinite(x.to))?{from:+x.from,to:+x.to,t:+x.t||Date.now()}:null),
       history,locked:!!L.locked,noPlates:!!L.noPlates,
       stats:{total:Math.max(0,parseInt(st.total)||0),cycles:Math.max(0,parseInt(st.cycles)||0),best:(parseFloat(st.best)||0)||mx,last:st.last?+st.last:null}};
     ns.order.push(id);
@@ -566,6 +577,47 @@ function setArr(L){
   L.setDone[pid]=W.map((w,i)=>{ const r=Array.isArray(a[i])?a[i].slice(0,w.s.length):[]; while(r.length<w.s.length) r.push(false); return r; });
   return L.setDone[pid];
 }
+// dejansko narejene ponovitve po setih (null = kot v planu)
+function repsArr(L){
+  const pid=L.program, W=state.programs[pid].workouts;
+  if(!L.repsDone) L.repsDone={};
+  const a=Array.isArray(L.repsDone[pid])?L.repsDone[pid]:[];
+  L.repsDone[pid]=W.map((w,i)=>{ const r=Array.isArray(a[i])?a[i].slice(0,w.s.length):[]; while(r.length<w.s.length) r.push(null); return r; });
+  return L.repsDone[pid];
+}
+const adjArr=L=>fitArr(L,'repAdj',null);
+// ponovitve iz plana kot število; samo za navadne sete s fiksnim številom (ne "2–4", "5+", Test, Negativ)
+const planReps=s=>(s[2]==='n'&&/^\d+$/.test(String(s[1]).trim()))?parseInt(s[1]):null;
+// Nov max iz dejanskih ponovitev (Epley: 1RM ≈ teža × (1 + ponovitve/30)).
+// Če kateri set ni dosegel plana -> max se zniža po najslabšem setu, da so naslednji treningi izvedljivi.
+// Če so vsi seti presegli plan -> max se zviša po najšibkejšem presežku.
+function repMaxAdjust(L,i){
+  const w=state.programs[L.program].workouts[i], got=repsArr(L)[i];
+  let short=false, allOver=true, any=false, fMin=Infinity;
+  w.s.forEach((s,j)=>{
+    const r=planReps(s); if(r==null) return;
+    any=true;
+    const a=got[j]==null?r:got[j];
+    if(a<r) short=true; if(a<=r) allOver=false;
+    const f=(a>0?(1+a/30):0.9)/(1+r/30);
+    if(f<fMin) fMin=f;
+  });
+  if(!any||!(short||allOver)) return null;
+  const st=step(); let to=r2(Math.round((L.max*fMin)/st)*st);
+  if(short&&to>=L.max) to=r2(L.max-st);        // vsaj en korak nižje
+  to=Math.max(0,to);
+  return to===L.max?null:to;
+}
+function repSummary(L,i){
+  const w=state.programs[L.program].workouts[i], got=repsArr(L)[i];
+  return w.s.map((s,j)=>got[j]==null?s[1]:got[j]).join('-');
+}
+function undoRepAdj(L,pid,i){
+  const arr=L.repAdj&&L.repAdj[pid], rec=arr&&arr[i]; if(!rec) return;
+  L.max=Math.max(0,r2(L.max+(rec.from-rec.to)));
+  for(let k=L.history.length-1;k>=0;k--){ if(Math.abs(L.history[k].t-rec.t)<2000){ L.history.splice(k,1); break; } }
+  arr[i]=null;
+}
 const dstr=t=>new Date(t).toLocaleDateString('sl-SI');
 const mmss=ms=>{ const s=Math.max(0,Math.floor(ms/1000)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
 function updateBest(L){ if(L.max>(L.stats.best||0)) L.stats.best=L.max; }
@@ -587,6 +639,8 @@ function resetCycle(id){
   const L=state.lifts[id], pid=L.program, n=state.programs[pid].workouts.length;
   L.progress[pid]=Array(n).fill(false); L.doneDates[pid]=Array(n).fill(null); L.testRes[pid]=Array(n).fill(null);
   if(L.setDone) L.setDone[pid]=[];
+  if(L.repsDone) L.repsDone[pid]=[];
+  if(L.repAdj) L.repAdj[pid]=[];
   L.locked=false; delete view.sel[id]; if(rest&&rest.k.startsWith(id+'|')) rest=null;
   save();
 }
@@ -742,7 +796,7 @@ function renderTrain(){
     h+='<section class="card donecard">'+I('trophy',30)+'<div><b>Cikel zaključen</b><small>Vsi treningi opravljeni · max '+fmt(L.max)+' '+u+'</small></div><button class="btn sm ok" data-act="newCycle">Nov cikel</button></section>';
   }
   // workout card
-  const w=W[sel], isDone=done[sel], ticks=sd[sel], lastT=w.s.map(s=>s[2]).lastIndexOf('t');
+  const w=W[sel], isDone=done[sel], ticks=sd[sel], got=repsArr(L)[sel], adj=adjArr(L)[sel], lastT=w.s.map(s=>s[2]).lastIndexOf('t');
   const status=isDone?'<span class="wk-sub done">'+I('check',13)+'Opravljeno'+(dates[sel]?' · '+dstr(dates[sel]):'')+'</span>'
     :(sel===now?'<span class="wk-sub now">Na vrsti · '+pl(w.s.length,SETF)+'</span>':'<span class="wk-sub">'+pl(w.s.length,SETF)+'</span>');
   h+='<section class="card wk" id="wk"><div class="wk-h">'
@@ -750,14 +804,22 @@ function renderTrain(){
     +'<div class="wk-t"><div class="wk-title">Trening '+(sel+1)+'</div>'+status+'</div>'
     +'<button class="icon-btn" data-act="pick" data-i="'+(sel+1)+'" aria-label="Naslednji trening"'+(sel===W.length-1?' disabled':'')+'>'+I('chev-r',22)+'</button></div><ul class="sets">';
   w.s.forEach((s,j)=>{
-    const pct=s[0], reps=s[1], t=s[2], wt=calc(pct,L.max), on=isDone||ticks[j];
-    h+='<li class="set t-'+t+(on?' on':'')+(isDone?' ro':'')+'"'+(isDone?'':' data-act="tick" data-j="'+j+'" role="checkbox" aria-checked="'+on+'" tabindex="0"')+' aria-label="Set '+(j+1)+': '+fmt(wt)+' '+u+' × '+esc(reps)+'">'
-      +'<span class="tick">'+I('check',17)+'</span><div class="set-main"><div class="l1"><span class="w">'+fmt(wt)+'<small>'+u+'</small></span><span class="x">×</span><span class="r">'+esc(reps)+'</span></div>'
+    const pct=s[0], reps=s[1], t=s[2], on=isDone||ticks[j];
+    // opravljen trening pokaže teže, s katerimi je bil narejen (max pred prilagoditvijo)
+    const wt=calc(pct,isDone&&adj?adj.from:L.max);
+    const pr=planReps(s), a=got[j], diff=pr!=null&&a!=null&&a!==pr;
+    const rHTML=pr==null?'<span class="r">'+esc(reps)+'</span>'
+      :'<span class="r'+(diff?(a<pr?' dn':' up'):'')+'">'+(diff?a+'<s>/'+pr+'</s>':pr)+'</span>'
+        +(isDone?'':'<span class="rs"><button class="rb" data-act="rep" data-j="'+j+'" data-d="-1" aria-label="Ena ponovitev manj"'+((a==null?pr:a)<=0?' disabled':'')+'>'+I('minus',16)+'</button>'
+          +'<button class="rb" data-act="rep" data-j="'+j+'" data-d="1" aria-label="Ena ponovitev več">'+I('plus',16)+'</button></span>');
+    h+='<li class="set t-'+t+(on?' on':'')+(isDone?' ro':'')+'"'+(isDone?'':' data-act="tick" data-j="'+j+'" role="checkbox" aria-checked="'+on+'" tabindex="0"')+' aria-label="Set '+(j+1)+': '+fmt(wt)+' '+u+' × '+esc(diff?String(a):reps)+'">'
+      +'<span class="tick">'+I('check',17)+'</span><div class="set-main"><div class="l1"><span class="w">'+fmt(wt)+'<small>'+u+'</small></span><span class="x">×</span>'+rHTML+'</div>'
       +(L.noPlates?'':platesLine(wt))+'</div>'
       +'<div class="set-r">'+(t!=='n'?'<span class="badge '+t+'">'+TYPE[t]+'</span>':'')+'<span class="pct">'+fmt(pct)+'%</span></div></li>';
     if(j===lastT) h+='<li class="testli">'+testBox(L,tests[sel])+'</li>';
   });
   h+='</ul><div class="wk-f">';
+  if(isDone&&adj) h+='<div class="adjnote">'+I('chart',16)+'<span>Po ponovitvah je max '+(adj.to<adj.from?'znižan':'zvišan')+': <b>'+fmt(adj.from)+' → '+fmt(adj.to)+' '+u+'</b></span></div>';
   if(isDone){
     h+='<button class="btn ghost block" data-act="undone">Označi kot neopravljeno</button>';
   }else{
@@ -874,7 +936,13 @@ function renderSettings(){
   h+='<div class="gh">Podatki</div><section class="card group">'
     +'<button class="row" data-act="export">'+I('download')+'<span class="rt"><b>Izvozi backup</b><small>Shrani JSON datoteko z vsemi podatki</small></span></button>'
     +'<button class="row" data-act="import">'+I('upload')+'<span class="rt"><b>Uvozi backup</b><small>Obnovi podatke iz datoteke</small></span></button>'
-    +(!isStandalone&&(deferredPrompt||isIOS)?'<button class="row" data-act="install">'+I('phone')+'<span class="rt"><b>Namesti aplikacijo</b><small>Na začetni zaslon, deluje brez povezave</small></span></button>':'')
+    +(!NATIVE&&!isStandalone&&(deferredPrompt||isIOS)?'<button class="row" data-act="install">'+I('phone')+'<span class="rt"><b>Namesti aplikacijo</b><small>Na začetni zaslon, deluje brez povezave</small></span></button>':'')
+    +'</section>';
+  h+='<div class="gh">Android aplikacija</div><section class="card group">'
+    +(NATIVE
+      ?'<button class="row" data-act="nUpdate">'+I('download')+'<span class="rt"><b>Preveri posodobitve</b><small>Nameščena različica '+esc(NATIVE.version())+'</small></span></button>'
+      :'<a class="row" href="'+APK_URL+'" rel="noopener">'+I('download')+'<span class="rt"><b>Prenesi Android aplikacijo</b><small>APK z GitHuba · posodobitve v aplikaciji</small></span></a>'
+        +(isAndroid?'<button class="row" data-act="toAndroid">'+I('phone')+'<span class="rt"><b>Prenesi podatke v Android aplikacijo</b><small>Najprej namesti aplikacijo, nato tapni tukaj</small></span></button>':''))
     +'</section>';
   h+='<div class="gh">Pomoč</div><section class="card group"><button class="row" data-act="help">'+I('help')+'<span class="rt"><b>Kako deluje program</b><small>Tipi setov, Test set, zaklep maxa</small></span><span class="chev">'+I('chev-r',18)+'</span></button></section>';
   h+='<p class="foot">Podatki so shranjeni samo na tej napravi.<br>Občasno izvozi backup.</p>';
@@ -887,6 +955,7 @@ function helpSheet(){
   openSheet('<div class="help"><h3 class="sh-t">Kako deluje</h3>'
     +'<p>Za vsako vajo vneseš svoj <b>max (1RM)</b> – največjo težo za eno ponovitev. Vse teže v programu so odstotek od maxa, zaokroženi na '+s+' '+u+'.</p>'
     +'<h4>'+I('dumbbell',18)+'Med treningom</h4><p>Tapni set, ko ga opraviš – začne teči štoparica počitka. Pod vsako težo piše, katere plošče daš na <b>vsako stran</b> droga. Na koncu tapni <b>Zaključi trening</b>.</p>'
+    +'<h4>Ponovitve</h4><p>Če narediš več ali manj ponovitev, kot piše, jih popraviš z <b>−</b> in <b>+</b> ob setu. Ob <b>Zaključi trening</b> aplikacija iz teže in ponovitev oceni max: če kateri set ni uspel, se max <b>zniža</b> (po najslabšem setu), da so naslednji treningi izvedljivi s predpisanimi ponovitvami. Če so vsi seti presegli plan, se max zviša. Razveljaviš z gumbom v obvestilu.</p>'
     +'<h4>Tipi setov</h4><ul>'
     +'<li><span class="badge n">Normalno</span><span>Običajen set s predpisanimi ponovitvami.</span></li>'
     +'<li><span class="badge g">Negativ</span><span>Teža nad maxom. Samo počasi spuščaš, pomočnik pomaga dvigniti.</span></li>'
@@ -972,21 +1041,42 @@ function newProgram(assign){
 }
 
 // ===== backup =====
+// ===== Android aplikacija =====
+const NATIVE=window.Plus50Android||null;            // znotraj Android aplikacije
+const isAndroid=/android/i.test(navigator.userAgent);
+const APK_URL='https://github.com/ragnarokdrakkar-rgb/50LBS/releases/latest/download/plus50.apk';
+window.plus50Native=msg=>toast(esc(String(msg)));
+window.plus50Import=text=>importText(text);
+function b64url(str){
+  const b=new TextEncoder().encode(str); let bin='';
+  for(let i=0;i<b.length;i+=0x8000) bin+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function sendToAndroid(){
+  saveNow();
+  const d=b64url(JSON.stringify(state));
+  // odpre Android aplikacijo; če ni nameščena, brskalnik prenese APK
+  location.href='intent://import?d='+d+'#Intent;scheme=plus50;package=com.ragnarok.plus50;S.browser_fallback_url='+encodeURIComponent(APK_URL)+';end';
+}
+
 function exportJSON(){
   saveNow();
+  const name='plus50-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  if(NATIVE){ NATIVE.saveBackup(name,JSON.stringify(state,null,2)); return; }
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=url; a.download='plus50-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.href=url; a.download=name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   toast('Backup izvožen.');
 }
+async function importText(text){
+  let p; try{ p=JSON.parse(text); if(!p||!p.lifts) throw 0; }catch(e){ toast('Napaka: datoteka ni veljaven backup.',{bad:true}); return; }
+  if(!await ask({title:'Uvozim podatke?',text:'Trenutni podatki na tej napravi bodo zamenjani z uvoženimi.',ok:'Uvozi'})) return;
+  applyLoaded(p); view.sel={}; rest=null; calcT=null; saveNow(); render(); toast('Podatki obnovljeni.');
+}
 function importJSON(file){
   const r=new FileReader();
-  r.onload=async()=>{
-    let p; try{ p=JSON.parse(r.result); if(!p||!p.lifts) throw 0; }catch(e){ toast('Napaka: datoteka ni veljaven backup.',{bad:true}); return; }
-    if(!await ask({title:'Uvozim backup?',text:'Trenutni podatki na tej napravi bodo zamenjani s podatki iz datoteke.',ok:'Uvozi'})) return;
-    applyLoaded(p); view.sel={}; rest=null; calcT=null; saveNow(); render(); toast('Podatki obnovljeni.');
-  };
+  r.onload=()=>importText(r.result);
   r.onerror=()=>toast('Datoteke ni bilo mogoče prebrati.',{bad:true});
   r.readAsText(file);
 }
@@ -1023,6 +1113,14 @@ const ACT={
     save(); render();
     if(hadFocus){ const f=document.querySelector('.set[data-j="'+j+'"]'); if(f) f.focus(); }
   },
+  rep(el){
+    const L=al(), i=curSel(), j=+el.dataset.j; if(progArr(L)[i]) return;
+    const s=ap().workouts[i].s[j], pr=planReps(s); if(pr==null) return;
+    const row=repsArr(L)[i], cur=row[j]==null?pr:row[j], v=Math.max(0,Math.min(pr+20,cur+(+el.dataset.d)));
+    row[j]=v===pr?null:v;
+    const tk=setArr(L)[i]; if(!tk[j]){ tk[j]=true; rest={k:restKey(i),t:Date.now()}; }
+    haptic(); save(); render();
+  },
   test(el){
     const L=al(), pid=L.program, i=curSel(), tests=testArr(L); if(tests[i]) return;
     const d=+el.dataset.d, lab=el.dataset.lab, s=step(), t=Date.now();
@@ -1038,17 +1136,27 @@ const ACT={
   },
   finish(){
     const L=al(), pid=L.program, i=curSel(), arr=progArr(L); if(arr[i]) return;
+    const to=repMaxAdjust(L,i), from=L.max;
     const wasLocked=toggleDone(L,i); rest=null; delete view.sel[state.active]; haptic(25);
+    if(to!=null){
+      const t=Date.now(), u=state.unit;
+      adjArr(L)[i]={from,to,t}; L.max=to; updateBest(L);
+      L.history.push({t,max:to,note:'Ponovitve '+repSummary(L,i)+' → '+(to<from?'−':'+')+fmt(Math.abs(r2(to-from)))});
+      save();
+    }
     const all=arr.every(Boolean);
     render(); scrollTo({top:0,behavior:'smooth'});
-    toast(all?'Cikel zaključen – odlično!':'Trening '+(i+1)+' opravljen',{action:'Razveljavi',fn:()=>{
+    const msg=(all?'Cikel zaključen – odlično!':'Trening '+(i+1)+' opravljen')+(to!=null?'<br>Max '+fmt(from)+' → <b>'+fmt(to)+' '+state.unit+'</b>':'');
+    toast(msg,{action:'Razveljavi',fn:()=>{
       if(L.program!==pid||!progArr(L)[i]) return;
+      undoRepAdj(L,pid,i);
       toggleDone(L,i); L.locked=wasLocked; if(state.lifts[state.active]===L) view.sel[state.active]=i; save(); render();
     }});
   },
   async undone(){
     const L=al(), i=curSel();
-    if(await ask({title:'Označim kot neopravljeno?',text:'Trening '+(i+1)+' bo spet odprt.',ok:'Označi'})){ if(progArr(L)[i]){ toggleDone(L,i); view.sel[state.active]=i; render(); } }
+    const rec=adjArr(L)[i];
+    if(await ask({title:'Označim kot neopravljeno?',text:'Trening '+(i+1)+' bo spet odprt.'+(rec?' Max se vrne na '+fmt(rec.from)+' '+state.unit+'.':''),ok:'Označi'})){ if(progArr(L)[i]){ undoRepAdj(L,L.program,i); toggleDone(L,i); view.sel[state.active]=i; render(); } }
   },
   async newCycle(){
     if(await ask({title:'Začnem nov cikel?',text:'Kljukice tega programa se ponastavijo. Max ostane '+fmt(al().max)+' '+state.unit+' in se odklene.',ok:'Nov cikel'})){ resetCycle(state.active); render(); toast('Nov cikel se začne.'); }
@@ -1140,6 +1248,8 @@ const ACT={
     setUnit(u); toast('Enota: '+u);
   },
   export(){ exportJSON(); },
+  nUpdate(){ if(NATIVE) NATIVE.checkUpdate(); },
+  toAndroid(){ sendToAndroid(); },
   import(){ $('#importFile').click(); }
 };
 function undoTest(L,pid,i){
@@ -1180,7 +1290,7 @@ addEventListener('appinstalled',()=>{ deferredPrompt=null; render(); toast('Apli
 
 // ===== boot =====
 loadUI(); load(); render();
-if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+if(!NATIVE && 'serviceWorker' in navigator && location.protocol.startsWith('http')){
   let refreshing=false;
   navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(refreshing) return; refreshing=true; saveNow(); location.reload(); });
   const showUpdate=w=>{ const b=$('#upd'); b.classList.add('show'); $('#updBtn').onclick=()=>{ b.classList.remove('show'); if(w) w.postMessage('skipWaiting'); }; };
