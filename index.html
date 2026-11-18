@@ -145,7 +145,11 @@
   .r{font:700 25px/1 var(--num)}
   .r.dn{color:var(--neg)} .r.up{color:var(--ok)}
   .r s{font:600 15px/1 var(--num);color:var(--faint);text-decoration:none;margin-left:2px}
-  .rs{display:inline-flex;align-items:center;gap:4px;align-self:center;margin-left:4px}
+  .w.dn{color:var(--neg)} .w.up{color:var(--ok)}
+  .w s{font:600 15px/1 var(--num);color:var(--faint);text-decoration:none;margin-left:3px}
+  .adj{display:flex;gap:14px;margin-top:8px;flex-wrap:wrap}
+  .ag{display:inline-flex;align-items:center;gap:5px}
+  .al{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);min-width:22px}
   .rb{width:30px;height:30px;border-radius:9px;border:1px solid var(--line2);background:var(--s2);color:var(--txt);display:grid;place-items:center;cursor:pointer;padding:0}
   .rb:active{background:var(--s3)}
   .rb:disabled{opacity:.35}
@@ -480,7 +484,7 @@ const SEED=[
   {id:'ohp',name:'Military press',max:60}
 ];
 function newLift(name,max,custom){
-  return {name,max,custom:!!custom,program:'plus50',progress:{},doneDates:{},testRes:{},setDone:{},repsDone:{},repAdj:{},history:[],locked:false,noPlates:false,stats:{total:0,cycles:0,best:max,last:null}};
+  return {name,max,custom:!!custom,program:'plus50',progress:{},doneDates:{},testRes:{},setDone:{},repsDone:{},wtDone:{},repAdj:{},history:[],locked:false,noPlates:false,stats:{total:0,cycles:0,best:max,last:null}};
 }
 function DEFAULT(){
   const lifts={},order=[];
@@ -525,6 +529,7 @@ function applyLoaded(p){
       testRes:mapArr(L.testRes,x=>(x&&typeof x==='object')?{d:parseInt(x.d)||0,t:+x.t||Date.now(),lab:String(x.lab||'')}:null),
       setDone:mapArr(L.setDone,r=>Array.isArray(r)?r.map(Boolean):[]),
       repsDone:mapArr(L.repsDone,r=>Array.isArray(r)?r.map(x=>(x==null||!isFinite(x))?null:Math.max(0,parseInt(x)||0)):[]),
+      wtDone:mapArr(L.wtDone,r=>Array.isArray(r)?r.map(x=>(x==null||!isFinite(x))?null:Math.max(0,r2(+x))):[]),
       repAdj:mapArr(L.repAdj,x=>(x&&typeof x==='object'&&isFinite(x.from)&&isFinite(x.to))?{from:+x.from,to:+x.to,t:+x.t||Date.now()}:null),
       history,locked:!!L.locked,noPlates:!!L.noPlates,
       stats:{total:Math.max(0,parseInt(st.total)||0),cycles:Math.max(0,parseInt(st.cycles)||0),best:(parseFloat(st.best)||0)||mx,last:st.last?+st.last:null}};
@@ -585,21 +590,31 @@ function repsArr(L){
   L.repsDone[pid]=W.map((w,i)=>{ const r=Array.isArray(a[i])?a[i].slice(0,w.s.length):[]; while(r.length<w.s.length) r.push(null); return r; });
   return L.repsDone[pid];
 }
+// dejansko uporabljena teža po setih (null = kot v planu)
+function wtArr(L){
+  const pid=L.program, W=state.programs[pid].workouts;
+  if(!L.wtDone) L.wtDone={};
+  const a=Array.isArray(L.wtDone[pid])?L.wtDone[pid]:[];
+  L.wtDone[pid]=W.map((w,i)=>{ const r=Array.isArray(a[i])?a[i].slice(0,w.s.length):[]; while(r.length<w.s.length) r.push(null); return r; });
+  return L.wtDone[pid];
+}
 const adjArr=L=>fitArr(L,'repAdj',null);
 // ponovitve iz plana kot število; samo za navadne sete s fiksnim številom (ne "2–4", "5+", Test, Negativ)
 const planReps=s=>(s[2]==='n'&&/^\d+$/.test(String(s[1]).trim()))?parseInt(s[1]):null;
 // Nov max iz dejanskih ponovitev (Epley: 1RM ≈ teža × (1 + ponovitve/30)).
 // Če kateri set ni dosegel plana -> max se zniža po najslabšem setu, da so naslednji treningi izvedljivi.
 // Če so vsi seti presegli plan -> max se zviša po najšibkejšem presežku.
+// Upošteva tudi dejansko težo: ocenjeni 1RM seta = teža × (1 + ponovitve/30), primerjan s planom.
 function repMaxAdjust(L,i){
-  const w=state.programs[L.program].workouts[i], got=repsArr(L)[i];
+  const w=state.programs[L.program].workouts[i], got=repsArr(L)[i], gw=wtArr(L)[i];
   let short=false, allOver=true, any=false, fMin=Infinity;
   w.s.forEach((s,j)=>{
     const r=planReps(s); if(r==null) return;
+    const wp=calc(s[0],L.max); if(!(wp>0)) return;
     any=true;
-    const a=got[j]==null?r:got[j];
-    if(a<r) short=true; if(a<=r) allOver=false;
-    const f=(a>0?(1+a/30):0.9)/(1+r/30);
+    const a=got[j]==null?r:got[j], wa=gw[j]==null?wp:gw[j];
+    const f=(wa*(a>0?(1+a/30):0.9))/(wp*(1+r/30));
+    if(f<1-1e-9) short=true; if(f<=1+1e-9) allOver=false;
     if(f<fMin) fMin=f;
   });
   if(!any||!(short||allOver)) return null;
@@ -609,8 +624,8 @@ function repMaxAdjust(L,i){
   return to===L.max?null:to;
 }
 function repSummary(L,i){
-  const w=state.programs[L.program].workouts[i], got=repsArr(L)[i];
-  return w.s.map((s,j)=>got[j]==null?s[1]:got[j]).join('-');
+  const w=state.programs[L.program].workouts[i], got=repsArr(L)[i], gw=wtArr(L)[i];
+  return w.s.map((s,j)=>(gw[j]==null?'':fmt(gw[j])+'×')+(got[j]==null?s[1]:got[j])).join(' ');
 }
 function undoRepAdj(L,pid,i){
   const arr=L.repAdj&&L.repAdj[pid], rec=arr&&arr[i]; if(!rec) return;
@@ -640,6 +655,7 @@ function resetCycle(id){
   L.progress[pid]=Array(n).fill(false); L.doneDates[pid]=Array(n).fill(null); L.testRes[pid]=Array(n).fill(null);
   if(L.setDone) L.setDone[pid]=[];
   if(L.repsDone) L.repsDone[pid]=[];
+  if(L.wtDone) L.wtDone[pid]=[];
   if(L.repAdj) L.repAdj[pid]=[];
   L.locked=false; delete view.sel[id]; if(rest&&rest.k.startsWith(id+'|')) rest=null;
   save();
@@ -796,7 +812,7 @@ function renderTrain(){
     h+='<section class="card donecard">'+I('trophy',30)+'<div><b>Cikel zaključen</b><small>Vsi treningi opravljeni · max '+fmt(L.max)+' '+u+'</small></div><button class="btn sm ok" data-act="newCycle">Nov cikel</button></section>';
   }
   // workout card
-  const w=W[sel], isDone=done[sel], ticks=sd[sel], got=repsArr(L)[sel], adj=adjArr(L)[sel], lastT=w.s.map(s=>s[2]).lastIndexOf('t');
+  const w=W[sel], isDone=done[sel], ticks=sd[sel], got=repsArr(L)[sel], gw=wtArr(L)[sel], adj=adjArr(L)[sel], lastT=w.s.map(s=>s[2]).lastIndexOf('t');
   const status=isDone?'<span class="wk-sub done">'+I('check',13)+'Opravljeno'+(dates[sel]?' · '+dstr(dates[sel]):'')+'</span>'
     :(sel===now?'<span class="wk-sub now">Na vrsti · '+pl(w.s.length,SETF)+'</span>':'<span class="wk-sub">'+pl(w.s.length,SETF)+'</span>');
   h+='<section class="card wk" id="wk"><div class="wk-h">'
@@ -806,20 +822,26 @@ function renderTrain(){
   w.s.forEach((s,j)=>{
     const pct=s[0], reps=s[1], t=s[2], on=isDone||ticks[j];
     // opravljen trening pokaže teže, s katerimi je bil narejen (max pred prilagoditvijo)
-    const wt=calc(pct,isDone&&adj?adj.from:L.max);
+    const wPlan=calc(pct,isDone&&adj?adj.from:L.max);
+    const wa=gw[j], wDiff=wa!=null&&wa!==wPlan, wt=wa==null?wPlan:wa;
     const pr=planReps(s), a=got[j], diff=pr!=null&&a!=null&&a!==pr;
     const rHTML=pr==null?'<span class="r">'+esc(reps)+'</span>'
-      :'<span class="r'+(diff?(a<pr?' dn':' up'):'')+'">'+(diff?a+'<s>/'+pr+'</s>':pr)+'</span>'
-        +(isDone?'':'<span class="rs"><button class="rb" data-act="rep" data-j="'+j+'" data-d="-1" aria-label="Ena ponovitev manj"'+((a==null?pr:a)<=0?' disabled':'')+'>'+I('minus',16)+'</button>'
-          +'<button class="rb" data-act="rep" data-j="'+j+'" data-d="1" aria-label="Ena ponovitev več">'+I('plus',16)+'</button></span>');
+      :'<span class="r'+(diff?(a<pr?' dn':' up'):'')+'">'+(diff?a+'<s>/'+pr+'</s>':pr)+'</span>';
+    const wHTML='<span class="w'+(wDiff?(wa<wPlan?' dn':' up'):'')+'">'+fmt(wt)+'<small>'+u+'</small>'+(wDiff?'<s>/'+fmt(wPlan)+'</s>':'')+'</span>';
+    const ctl=isDone?'':'<div class="adj">'
+      +'<span class="ag"><span class="al">'+u+'</span><button class="rb" data-act="wt" data-j="'+j+'" data-d="-1" aria-label="Manj teže"'+(wt<=0?' disabled':'')+'>'+I('minus',16)+'</button>'
+      +'<button class="rb" data-act="wt" data-j="'+j+'" data-d="1" aria-label="Več teže">'+I('plus',16)+'</button></span>'
+      +(pr==null?'':'<span class="ag"><span class="al">rep</span><button class="rb" data-act="rep" data-j="'+j+'" data-d="-1" aria-label="Ena ponovitev manj"'+((a==null?pr:a)<=0?' disabled':'')+'>'+I('minus',16)+'</button>'
+      +'<button class="rb" data-act="rep" data-j="'+j+'" data-d="1" aria-label="Ena ponovitev več">'+I('plus',16)+'</button></span>')
+      +'</div>';
     h+='<li class="set t-'+t+(on?' on':'')+(isDone?' ro':'')+'"'+(isDone?'':' data-act="tick" data-j="'+j+'" role="checkbox" aria-checked="'+on+'" tabindex="0"')+' aria-label="Set '+(j+1)+': '+fmt(wt)+' '+u+' × '+esc(diff?String(a):reps)+'">'
-      +'<span class="tick">'+I('check',17)+'</span><div class="set-main"><div class="l1"><span class="w">'+fmt(wt)+'<small>'+u+'</small></span><span class="x">×</span>'+rHTML+'</div>'
-      +(L.noPlates?'':platesLine(wt))+'</div>'
+      +'<span class="tick">'+I('check',17)+'</span><div class="set-main"><div class="l1">'+wHTML+'<span class="x">×</span>'+rHTML+'</div>'
+      +(L.noPlates?'':platesLine(wt))+ctl+'</div>'
       +'<div class="set-r">'+(t!=='n'?'<span class="badge '+t+'">'+TYPE[t]+'</span>':'')+'<span class="pct">'+fmt(pct)+'%</span></div></li>';
     if(j===lastT) h+='<li class="testli">'+testBox(L,tests[sel])+'</li>';
   });
   h+='</ul><div class="wk-f">';
-  if(isDone&&adj) h+='<div class="adjnote">'+I('chart',16)+'<span>Po ponovitvah je max '+(adj.to<adj.from?'znižan':'zvišan')+': <b>'+fmt(adj.from)+' → '+fmt(adj.to)+' '+u+'</b></span></div>';
+  if(isDone&&adj) h+='<div class="adjnote">'+I('chart',16)+'<span>Po opravljenih setih je max '+(adj.to<adj.from?'znižan':'zvišan')+': <b>'+fmt(adj.from)+' → '+fmt(adj.to)+' '+u+'</b></span></div>';
   if(isDone){
     h+='<button class="btn ghost block" data-act="undone">Označi kot neopravljeno</button>';
   }else{
@@ -955,7 +977,7 @@ function helpSheet(){
   openSheet('<div class="help"><h3 class="sh-t">Kako deluje</h3>'
     +'<p>Za vsako vajo vneseš svoj <b>max (1RM)</b> – največjo težo za eno ponovitev. Vse teže v programu so odstotek od maxa, zaokroženi na '+s+' '+u+'.</p>'
     +'<h4>'+I('dumbbell',18)+'Med treningom</h4><p>Tapni set, ko ga opraviš – začne teči štoparica počitka. Pod vsako težo piše, katere plošče daš na <b>vsako stran</b> droga. Na koncu tapni <b>Zaključi trening</b>.</p>'
-    +'<h4>Ponovitve</h4><p>Če narediš več ali manj ponovitev, kot piše, jih popraviš z <b>−</b> in <b>+</b> ob setu. Ob <b>Zaključi trening</b> aplikacija iz teže in ponovitev oceni max: če kateri set ni uspel, se max <b>zniža</b> (po najslabšem setu), da so naslednji treningi izvedljivi s predpisanimi ponovitvami. Če so vsi seti presegli plan, se max zviša. Razveljaviš z gumbom v obvestilu.</p>'
+    +'<h4>Teža in ponovitve</h4><p>Če narediš drugačno težo ali več/manj ponovitev, kot piše, ju popraviš z <b>−</b> in <b>+</b> pod setom (<b>'+u+'</b> in <b>rep</b>). Ob <b>Zaključi trening</b> aplikacija iz dejanske teže in ponovitev oceni max: če kateri set ni uspel, se max <b>zniža</b> (po najslabšem setu), da so naslednji treningi izvedljivi s predpisanimi ponovitvami. Če so vsi seti presegli plan, se max zviša. Razveljaviš z gumbom v obvestilu.</p>'
     +'<h4>Tipi setov</h4><ul>'
     +'<li><span class="badge n">Normalno</span><span>Običajen set s predpisanimi ponovitvami.</span></li>'
     +'<li><span class="badge g">Negativ</span><span>Teža nad maxom. Samo počasi spuščaš, pomočnik pomaga dvigniti.</span></li>'
@@ -1084,7 +1106,9 @@ function importJSON(file){
 // ===== unit =====
 function setUnit(u){
   const f=u==='lb'?2.20462:1/2.20462, s=u==='kg'?2.5:5, rd=v=>Math.round((v*f)/s)*s;
-  Object.values(state.lifts).forEach(l=>{ l.max=rd(l.max); l.stats.best=rd(l.stats.best||0); l.history.forEach(h=>{ h.max=rd(h.max); }); });
+  Object.values(state.lifts).forEach(l=>{ if(l.wtDone) Object.values(l.wtDone).forEach(A=>A.forEach(r=>{ if(Array.isArray(r)) r.forEach((x,k)=>{ if(x!=null) r[k]=rd(x); }); }));
+    if(l.repAdj) Object.values(l.repAdj).forEach(A=>A.forEach(x=>{ if(x){ x.from=rd(x.from); x.to=rd(x.to); } }));
+    l.max=rd(l.max); l.stats.best=rd(l.stats.best||0); l.history.forEach(h=>{ h.max=rd(h.max); }); });
   state.unit=u; calcT=null; save(); render();
 }
 
@@ -1112,6 +1136,14 @@ const ACT={
     if(row[j]){ rest={k:restKey(i),t:Date.now()}; haptic(); }
     save(); render();
     if(hadFocus){ const f=document.querySelector('.set[data-j="'+j+'"]'); if(f) f.focus(); }
+  },
+  wt(el){
+    const L=al(), i=curSel(), j=+el.dataset.j; if(progArr(L)[i]) return;
+    const s=ap().workouts[i].s[j], wp=calc(s[0],L.max), row=wtArr(L)[i];
+    const cur=row[j]==null?wp:row[j], v=Math.max(0,r2(cur+(+el.dataset.d)*step()));
+    row[j]=v===wp?null:v;
+    const tk=setArr(L)[i]; if(!tk[j]){ tk[j]=true; rest={k:restKey(i),t:Date.now()}; }
+    haptic(); save(); render();
   },
   rep(el){
     const L=al(), i=curSel(), j=+el.dataset.j; if(progArr(L)[i]) return;
@@ -1141,7 +1173,7 @@ const ACT={
     if(to!=null){
       const t=Date.now(), u=state.unit;
       adjArr(L)[i]={from,to,t}; L.max=to; updateBest(L);
-      L.history.push({t,max:to,note:'Ponovitve '+repSummary(L,i)+' → '+(to<from?'−':'+')+fmt(Math.abs(r2(to-from)))});
+      L.history.push({t,max:to,note:'Seti '+repSummary(L,i)+' → '+(to<from?'−':'+')+fmt(Math.abs(r2(to-from)))});
       save();
     }
     const all=arr.every(Boolean);
