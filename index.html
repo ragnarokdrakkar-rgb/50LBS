@@ -127,12 +127,14 @@
   .wk-sub{font-size:12.5px;color:var(--muted);font-weight:500;margin-top:1px;display:flex;align-items:center;justify-content:center;gap:5px}
   .wk-sub.now{color:var(--accent)} .wk-sub.done{color:var(--ok)}
   .sets{list-style:none}
-  .set{display:flex;align-items:center;gap:12px;padding:12px 14px 12px 16px;position:relative;cursor:pointer;user-select:none;-webkit-user-select:none;transition:background .15s}
+  .set{display:flex;align-items:center;gap:12px;padding:12px 14px 12px 16px;position:relative;user-select:none;-webkit-user-select:none;transition:background .15s}
   .set + .set,.testli + .set{border-top:1px solid var(--line)}
   .set.ro{cursor:default}
-  .set:not(.ro):active{background:var(--s2)}
   .set.t-g::before,.set.t-t::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0}
   .set.t-g::before{background:var(--neg)} .set.t-t::before{background:var(--test)}
+  button.tick{background:none;padding:0;cursor:pointer;position:relative}
+  button.tick::after{content:'';position:absolute;inset:-10px}
+  button.tick:active{transform:scale(.92)}
   .tick{width:34px;height:34px;border-radius:50%;border:2px solid var(--line2);display:grid;place-items:center;color:transparent;flex:0 0 auto;transition:background .15s,border-color .15s,color .15s,transform .15s}
   .set.on .tick{background:var(--ok);border-color:var(--ok);color:var(--ok-ink)}
   .set.on:not(.ro) .tick{transform:scale(1.04)}
@@ -834,8 +836,10 @@ function renderTrain(){
       +(pr==null?'':'<span class="ag"><span class="al">rep</span><button class="rb" data-act="rep" data-j="'+j+'" data-d="-1" aria-label="Ena ponovitev manj"'+((a==null?pr:a)<=0?' disabled':'')+'>'+I('minus',16)+'</button>'
       +'<button class="rb" data-act="rep" data-j="'+j+'" data-d="1" aria-label="Ena ponovitev več">'+I('plus',16)+'</button></span>')
       +'</div>';
-    h+='<li class="set t-'+t+(on?' on':'')+(isDone?' ro':'')+'"'+(isDone?'':' data-act="tick" data-j="'+j+'" role="checkbox" aria-checked="'+on+'" tabindex="0"')+' aria-label="Set '+(j+1)+': '+fmt(wt)+' '+u+' × '+esc(diff?String(a):reps)+'">'
-      +'<span class="tick">'+I('check',17)+'</span><div class="set-main"><div class="l1">'+wHTML+'<span class="x">×</span>'+rHTML+'</div>'
+    // obkljuka se samo s tapom na krogec
+    h+='<li class="set t-'+t+(on?' on':'')+(isDone?' ro':'')+'" data-j="'+j+'">'
+      +(isDone?'<span class="tick">'+I('check',17)+'</span>'
+        :'<button type="button" class="tick" data-act="tick" data-j="'+j+'" role="checkbox" aria-checked="'+on+'" aria-label="Set '+(j+1)+': '+fmt(wt)+' '+u+' × '+esc(diff?String(a):reps)+'">'+I('check',17)+'</button>')+'<div class="set-main"><div class="l1">'+wHTML+'<span class="x">×</span>'+rHTML+'</div>'
       +(L.noPlates?'':platesLine(wt))+ctl+'</div>'
       +'<div class="set-r">'+(t!=='n'?'<span class="badge '+t+'">'+TYPE[t]+'</span>':'')+'<span class="pct">'+fmt(pct)+'%</span></div></li>';
     if(j===lastT) h+='<li class="testli">'+testBox(L,tests[sel])+'</li>';
@@ -1135,14 +1139,13 @@ const ACT={
     const row=setArr(L)[i], hadFocus=el===document.activeElement; row[j]=!row[j];
     if(row[j]){ rest={k:restKey(i),t:Date.now()}; haptic(); }
     save(); render();
-    if(hadFocus){ const f=document.querySelector('.set[data-j="'+j+'"]'); if(f) f.focus(); }
+    if(hadFocus){ const f=document.querySelector('.tick[data-j="'+j+'"]'); if(f) f.focus(); }
   },
   wt(el){
     const L=al(), i=curSel(), j=+el.dataset.j; if(progArr(L)[i]) return;
     const s=ap().workouts[i].s[j], wp=calc(s[0],L.max), row=wtArr(L)[i];
     const cur=row[j]==null?wp:row[j], v=Math.max(0,r2(cur+(+el.dataset.d)*step()));
     row[j]=v===wp?null:v;
-    const tk=setArr(L)[i]; if(!tk[j]){ tk[j]=true; rest={k:restKey(i),t:Date.now()}; }
     haptic(); save(); render();
   },
   rep(el){
@@ -1150,7 +1153,6 @@ const ACT={
     const s=ap().workouts[i].s[j], pr=planReps(s); if(pr==null) return;
     const row=repsArr(L)[i], cur=row[j]==null?pr:row[j], v=Math.max(0,Math.min(pr+20,cur+(+el.dataset.d)));
     row[j]=v===pr?null:v;
-    const tk=setArr(L)[i]; if(!tk[j]){ tk[j]=true; rest={k:restKey(i),t:Date.now()}; }
     haptic(); save(); render();
   },
   test(el){
