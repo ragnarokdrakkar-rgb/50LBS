@@ -252,6 +252,9 @@
   .group{overflow:hidden}
   .row{display:flex;align-items:center;gap:12px;padding:12px 14px;min-height:58px;width:100%}
   .row + .row{border-top:1px solid var(--line)}
+  .help ol.steps{margin:6px 0 12px;padding-left:20px;display:grid;gap:7px}
+  .help ol.steps li{display:list-item;padding-left:2px;color:var(--muted)}
+  .help ol.steps li b{color:var(--txt)}
   a.row{color:inherit;text-decoration:none}
   button.row:active,.rmain:active{background:var(--s2)}
   .row > .i{color:var(--muted)}
@@ -967,9 +970,12 @@ function renderSettings(){
   h+='<div class="gh">Android aplikacija</div><section class="card group">'
     +(NATIVE
       ?'<button class="row" data-act="nUpdate">'+I('download')+'<span class="rt"><b>Preveri posodobitve</b><small>Nameščena različica '+esc(NATIVE.version())+'</small></span></button>'
-      :'<a class="row" href="'+APK_URL+'" rel="noopener">'+I('download')+'<span class="rt"><b>Prenesi Android aplikacijo</b><small>APK z GitHuba · posodobitve v aplikaciji</small></span></a>'
+        +'<a class="row" href="'+esc(apkLatest?apkLatest.url:APK_URL)+'" rel="noopener">'+I('download')+'<span class="rt"><b>Prenesi najnovejši APK v brskalniku</b><small>'+(apkLatest?'Različica '+apkLatest.name+' · ':'')+'če posodobitev v aplikaciji ne uspe</small></span></a>'
+      :'<a class="row" href="'+esc(apkLatest?apkLatest.url:APK_URL)+'" rel="noopener">'+I('download')+'<span class="rt"><b>Prenesi Android aplikacijo'+(apkLatest?' '+apkLatest.name:'')+'</b><small>Najnovejša različica z GitHuba</small></span></a>'
         +(isAndroid?'<button class="row" data-act="toAndroid">'+I('phone')+'<span class="rt"><b>Prenesi podatke v Android aplikacijo</b><small>Najprej namesti aplikacijo, nato tapni tukaj</small></span></button>':''))
+    +'<button class="row" data-act="apkHelp">'+I('help')+'<span class="rt"><b>Kako namestiti</b><small>Play Protect, »Aplikacija ni nameščena«</small></span><span class="chev">'+I('chev-r',18)+'</span></button>'
     +'</section>';
+  fetchApkLatest();
   h+='<div class="gh">Pomoč</div><section class="card group"><button class="row" data-act="help">'+I('help')+'<span class="rt"><b>Kako deluje program</b><small>Tipi setov, Test set, zaklep maxa</small></span><span class="chev">'+I('chev-r',18)+'</span></button></section>';
   h+='<p class="foot">Podatki so shranjeni samo na tej napravi.<br>Občasno izvozi backup.</p>';
   $('#view').innerHTML=h;
@@ -1071,6 +1077,31 @@ function newProgram(assign){
 const NATIVE=window.Plus50Android||null;            // znotraj Android aplikacije
 const isAndroid=/android/i.test(navigator.userAgent);
 const APK_URL='https://github.com/ragnarokdrakkar-rgb/50LBS/releases/latest/download/plus50.apk';
+// najnovejša objavljena različica APK-ja (z GitHuba), za prikaz in neposredno povezavo
+let apkLatest=null, apkFetching=false;
+function fetchApkLatest(){
+  if(apkLatest||apkFetching||!navigator.onLine) return; apkFetching=true;
+  fetch('https://api.github.com/repos/ragnarokdrakkar-rgb/50LBS/releases/latest',{headers:{Accept:'application/vnd.github+json'}})
+    .then(r=>r.ok?r.json():Promise.reject())
+    .then(j=>{
+      const n=parseInt(String(j.tag_name||'').replace(/\D/g,''))||0;
+      const a=(j.assets||[]).find(x=>/\.apk$/.test(x.name||''));
+      if(n&&a){ apkLatest={code:n,name:'1.'+n,url:a.browser_download_url}; if(ui.tab==='settings') render(); }
+    }).catch(()=>{}).finally(()=>{ apkFetching=false; });
+}
+function apkHelp(){
+  openSheet('<div class="help"><h3 class="sh-t">Namestitev Android aplikacije</h3>'
+    +'<h4>Prva namestitev ali ročna posodobitev</h4><ol class="steps">'
+    +'<li>Tapni <b>Prenesi Android aplikacijo</b> in odpri preneseno datoteko <b>plus50.apk</b>.</li>'
+    +'<li>Če telefon vpraša za dovoljenje za <b>nameščanje neznanih aplikacij</b>, ga dovoli za brskalnik.</li>'
+    +'<li>Če Play Protect napiše, da aplikacija <b>ni preverjena</b>: tapni <b>Več podrobnosti → Vseeno namesti</b>. Ne izbiraj <b>Preveri / Skeniraj aplikacijo</b> – to pogosto konča z napako »Aplikacija ni nameščena«.</li></ol>'
+    +'<h4>Če piše »Aplikacija ni nameščena«</h4><ol class="steps">'
+    +'<li>V stari aplikaciji: <b>Nastavitve → Izvozi backup</b> (shrani podatke).</li>'
+    +'<li>Staro aplikacijo odstrani (dolg pritisk na ikono → <b>Odstrani</b>).</li>'
+    +'<li>Namesti novo (koraki zgoraj) in v njej <b>Uvozi backup</b>. Ali pa v brskalniku tapni <b>Prenesi podatke v Android aplikacijo</b>.</li></ol>'
+    +'<p>Od različice 1.5 naprej aplikacija posodobitve namešča bolj zanesljivo in ob napaki pove razlog.</p>'
+    +'<div class="sh-actions"><button class="btn primary" data-close>Razumem</button></div></div>');
+}
 window.plus50Native=msg=>toast(esc(String(msg)));
 window.plus50Import=text=>importText(text);
 function b64url(str){
@@ -1283,6 +1314,7 @@ const ACT={
   },
   export(){ exportJSON(); },
   nUpdate(){ if(NATIVE) NATIVE.checkUpdate(); },
+  apkHelp(){ apkHelp(); },
   toAndroid(){ sendToAndroid(); },
   import(){ $('#importFile').click(); }
 };

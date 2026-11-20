@@ -38,6 +38,13 @@ public class MainActivity extends Activity {
     private String pendingImport;          // podatki iz plus50://import, dokler se stran ne naloži
     private String pendingSave;            // backup, ki čaka na izbiro mesta shranjevanja
     private ValueCallback<Uri[]> fileCallback;
+    private static java.lang.ref.WeakReference<MainActivity> currentRef = new java.lang.ref.WeakReference<>(null);
+
+    /** Trenutno odprta aktivnost (za prikaz napake namestitve). */
+    static MainActivity current() {
+        MainActivity a = currentRef.get();
+        return (a == null || a.isFinishing()) ? null : a;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -115,6 +122,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        currentRef = new java.lang.ref.WeakReference<>(this);
         Updater.resumePendingInstall(this);
     }
 
@@ -184,6 +192,9 @@ public class MainActivity extends Activity {
     private class Bridge {
         @JavascriptInterface
         public String version() { return BuildConfig.VERSION_NAME; }
+
+        @JavascriptInterface
+        public int versionCode() { return BuildConfig.VERSION_CODE; }
 
         @JavascriptInterface
         public void checkUpdate() { runOnUiThread(() -> Updater.check(MainActivity.this, true)); }
