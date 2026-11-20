@@ -2,21 +2,24 @@ package com.ragnarok.plus50;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.PendingIntent;
+import android.content.pm.PackageInstaller;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 
-import androidx.core.content.FileProvider;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +29,8 @@ import java.nio.charset.StandardCharsets;
  * Če je številka višja od trenutne versionCode, ponudi prenos in namestitev.
  */
 final class Updater {
+    static final String LATEST_APK =
+            "https://github.com/" + BuildConfig.UPDATE_REPO + "/releases/latest/download/plus50.apk";
     private static File pendingApk;   // čaka, da uporabnik dovoli nameščanje iz te aplikacije
 
     private Updater() { }
@@ -102,7 +107,7 @@ final class Updater {
             } catch (Exception e) {
                 a.runOnUiThread(() -> {
                     dlg.dismiss();
-                    a.notifyWeb("Prenos posodobitve ni uspel.");
+                    showInstallError(a, "Prenos posodobitve ni uspel – preveri internetno povezavo.");
                 });
             }
         }).start();
@@ -121,11 +126,58 @@ final class Updater {
             return;
         }
         pendingApk = null;
-        Uri uri = FileProvider.getUriForFile(a, a.getPackageName() + ".files", apk);
-        Intent i = new Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-        a.startActivity(i);
+        installWithSession(a, apk);
+    }
+
+    /**
+     * Namestitev prek sistemskega PackageInstaller-ja: datoteka se najprej v celoti preda sistemu,
+     * zato skeniranje Play Protecta ne prekine namestitve. Rezultat pride v InstallReceiver.
+     */
+    private static void installWithSession(Activity a, File apk) {
+        PackageInstaller.Session session = null;
+        try {
+            PackageInstaller pi = a.getPackageManager().getPackageInstaller();
+            PackageInstaller.SessionParams params =
+                    new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
+            params.setAppPackageName(a.getPackageName());
+            params.setSize(apk.length());
+            int id = pi.createSession(params);
+            session = pi.openSession(id);
+            try (InputStream in = new FileInputStream(apk);
+                 OutputStream out = session.openWrite("plus50.apk", 0, apk.length())) {
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                session.fsync(out);
+            }
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                    | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
+            PendingIntent cb = PendingIntent.getBroadcast(a, id,
+                    new Intent(a, InstallReceiver.class).setPackage(a.getPackageName()), flags);
+            session.commit(cb.getIntentSender());
+            session.close();
+            session = null;
+        } catch (Exception e) {
+            if (session != null) session.abandon();
+            showInstallError(a, e.getMessage());
+        }
+    }
+
+    /** Namestitev ni uspela: pokaži razlog in ponudi prenos v brskalniku. */
+    static void showInstallError(Activity a, String reason) {
+        if (a == null || a.isFinishing()) return;
+        new AlertDialog.Builder(a)
+                .setTitle("Posodobitev ni uspela")
+                .setMessage((reason == null || reason.isEmpty() ? "Neznana napaka." : reason)
+                        + "\n\nNamesti najnovejšo različico ročno: tapni »Prenesi v brskalniku« in odpri preneseno datoteko."
+                        + " Če še vedno piše »Aplikacija ni nameščena«, najprej izvozi backup, staro aplikacijo odstrani in namesti novo.")
+                .setPositiveButton("Prenesi v brskalniku", (d, w) -> {
+                    try {
+                        a.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(LATEST_APK)));
+                    } catch (Exception ignored) { }
+                })
+                .setNegativeButton("Zapri", null)
+                .show();
     }
 
     /** Ko se uporabnik vrne iz nastavitev z dovoljenjem, namestitev nadaljuj. */
